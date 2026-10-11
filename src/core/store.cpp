@@ -308,7 +308,7 @@ bool Store::addIntake(Intake &intake, QString *error)
     QSqlQuery query(m_database.handle());
     query.prepare(QStringLiteral(
         "INSERT INTO intake (regimen_id, medication_id, scheduled_at, taken_at, amount, unit,"
-        " status, site, notes) VALUES (?,?,?,?,?,?,?,?,?)"));
+        " status, site, notes, stock_delta) VALUES (?,?,?,?,?,?,?,?,?,?)"));
     query.addBindValue(intake.regimenId >= 0 ? QVariant(intake.regimenId) : QVariant(QVariant::LongLong));
     query.addBindValue(intake.medicationId);
     query.addBindValue(intake.scheduledAt.isValid() ? QVariant(toEpoch(intake.scheduledAt))
@@ -319,6 +319,7 @@ bool Store::addIntake(Intake &intake, QString *error)
     query.addBindValue(intake.status);
     query.addBindValue(textOrNull(intake.site));
     query.addBindValue(textOrNull(intake.notes));
+    query.addBindValue(intake.stockDelta >= 0.0 ? QVariant(intake.stockDelta) : QVariant(QVariant::Double));
     if (!exec(query, error))
         return false;
     intake.id = query.lastInsertId().toLongLong();
@@ -330,7 +331,7 @@ bool Store::updateIntake(const Intake &intake, QString *error)
     QSqlQuery query(m_database.handle());
     query.prepare(QStringLiteral(
         "UPDATE intake SET regimen_id=?, medication_id=?, scheduled_at=?, taken_at=?, amount=?,"
-        " unit=?, status=?, site=?, notes=? WHERE id=?"));
+        " unit=?, status=?, site=?, notes=?, stock_delta=? WHERE id=?"));
     query.addBindValue(intake.regimenId >= 0 ? QVariant(intake.regimenId) : QVariant(QVariant::LongLong));
     query.addBindValue(intake.medicationId);
     query.addBindValue(intake.scheduledAt.isValid() ? QVariant(toEpoch(intake.scheduledAt))
@@ -341,6 +342,7 @@ bool Store::updateIntake(const Intake &intake, QString *error)
     query.addBindValue(intake.status);
     query.addBindValue(textOrNull(intake.site));
     query.addBindValue(textOrNull(intake.notes));
+    query.addBindValue(intake.stockDelta >= 0.0 ? QVariant(intake.stockDelta) : QVariant(QVariant::Double));
     query.addBindValue(intake.id);
     return exec(query, error);
 }
@@ -359,7 +361,7 @@ QList<Intake> Store::intakes(qint64 medicationId) const
     QSqlQuery query(m_database.handle());
     query.prepare(QStringLiteral(
         "SELECT id, regimen_id, medication_id, scheduled_at, taken_at, amount, unit, status,"
-        " site, notes FROM intake") +
+        " site, notes, stock_delta FROM intake") +
         (medicationId >= 0 ? QStringLiteral(" WHERE medication_id=?") : QString()) +
         QStringLiteral(" ORDER BY taken_at DESC"));
     if (medicationId >= 0)
@@ -379,6 +381,7 @@ QList<Intake> Store::intakes(qint64 medicationId) const
         i.status = query.value(7).toString();
         i.site = query.value(8).toString();
         i.notes = query.value(9).toString();
+        i.stockDelta = query.value(10).isNull() ? -1.0 : query.value(10).toDouble();
         result.append(i);
     }
     return result;

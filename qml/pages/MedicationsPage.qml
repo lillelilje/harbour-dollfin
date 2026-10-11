@@ -72,7 +72,7 @@ Page {
                 Label {
                     width: parent.width
                     visible: modelData.hasStock
-                    text: modelData.quantity + " " + modelData.stockUnit
+                    text: modelData.quantity + " " + modelData.stockUnitLabel
                           + (modelData.isLow ? " · " + qsTr("low") : "")
                     color: modelData.isLow ? Theme.errorColor : Theme.secondaryColor
                     font.pixelSize: Theme.fontSizeExtraSmall

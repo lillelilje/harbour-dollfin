@@ -7,6 +7,8 @@
 #include "core/backup.h"
 #include "core/ical.h"
 #include "core/scheduleengine.h"
+#include "core/stockledger.h"
+#include "core/vocab.h"
 
 #include <QDBusConnection>
 #include <QDBusConnectionInterface>
@@ -31,7 +33,8 @@ QVariantMap medicationToMap(const Medication &m)
     QVariantMap map;
     map[QStringLiteral("id")] = m.id;
     map[QStringLiteral("name")] = m.name;
-    map[QStringLiteral("form")] = m.form;
+    map[QStringLiteral("form")] = m.form; // stable key (D-032)
+    map[QStringLiteral("formLabel")] = Vocab::formLabel(m.form);
     map[QStringLiteral("strength")] = m.strength;
     map[QStringLiteral("unit")] = m.unit;
     map[QStringLiteral("notes")] = m.notes;
@@ -41,8 +44,9 @@ QVariantMap medicationToMap(const Medication &m)
         detail = QString::number(m.strength) + QLatin1Char(' ') + m.unit;
     else
         detail = m.unit;
-    if (!m.form.isEmpty())
-        detail = detail.isEmpty() ? m.form : (m.form + QStringLiteral(" · ") + detail);
+    const QString formLabel = Vocab::formLabel(m.form);
+    if (!formLabel.isEmpty())
+        detail = detail.isEmpty() ? formLabel : (formLabel + QStringLiteral(" · ") + detail);
     map[QStringLiteral("detail")] = detail.trimmed();
     return map;
 }
@@ -81,20 +85,30 @@ QVariantMap regimenToMap(const Regimen &r, const Medication &medication)
     for (const QTime &time : r.times)
         times.append(time.toString(QStringLiteral("HH:mm")));
 
-    // Dose/strength/route live on the medication, not the schedule.
+    // Strength/route live on the medication; the schedule only adds how many
+    // units (pills, patches, ...) make up one dose (D-031).
     QString doseText;
     if (medication.strength > 0.0)
         doseText = QString::number(medication.strength) + QLatin1Char(' ') + medication.unit;
     else
         doseText = medication.unit;
-    if (!medication.form.isEmpty())
-        doseText = doseText.isEmpty() ? medication.form
-                                      : (medication.form + QStringLiteral(" · ") + doseText);
+    QString form = Vocab::formLabel(medication.form);
+    if (r.dose > 0.0 && r.dose != 1.0) {
+        const QString count = QString::number(r.dose) + QStringLiteral(" × ");
+        if (!doseText.trimmed().isEmpty())
+            doseText = count + doseText;
+        else
+            form = count + form;
+    }
+    if (!form.isEmpty())
+        doseText = doseText.trimmed().isEmpty() ? form
+                                                : (form + QStringLiteral(" · ") + doseText);
 
     QVariantMap map;
     map[QStringLiteral("id")] = r.id;
     map[QStringLiteral("medicationId")] = r.medicationId;
     map[QStringLiteral("medicationName")] = medication.name;
+    map[QStringLiteral("dose")] = r.dose;
     map[QStringLiteral("intervalDays")] = r.intervalDays;
     map[QStringLiteral("daysOfWeek")] = days;
     map[QStringLiteral("times")] = times;
@@ -308,7 +322,8 @@ QVariantMap AppController::medicationMap(const Medication &medication) const
     const Stock stock = m_store.stock(medication.id, &hasStock);
     map[QStringLiteral("hasStock")] = hasStock;
     map[QStringLiteral("quantity")] = stock.quantity;
-    map[QStringLiteral("stockUnit")] = stock.unit;
+    map[QStringLiteral("stockUnit")] = stock.unit; // stable key (D-032)
+    map[QStringLiteral("stockUnitLabel")] = Vocab::stockUnitLabel(stock.unit);
     map[QStringLiteral("lowThreshold")] = stock.lowThreshold;
     map[QStringLiteral("source")] = stock.source;
     map[QStringLiteral("expires")] = stock.expires.isValid() ? stock.expires.toString(Qt::ISODate)
@@ -329,7 +344,7 @@ bool AppController::saveMedication(const QVariantMap &data)
     Medication m;
     m.id = data.value(QStringLiteral("id"), -1).toLongLong();
     m.name = data.value(QStringLiteral("name")).toString().trimmed();
-    m.form = data.value(QStringLiteral("form")).toString().trimmed();
+    m.form = Vocab::normalizeForm(data.value(QStringLiteral("form")).toString().trimmed());
     m.strength = data.value(QStringLiteral("strength")).toDouble();
     m.unit = data.value(QStringLiteral("unit")).toString().trimmed();
     m.notes = data.value(QStringLiteral("notes")).toString().trimmed();
@@ -405,11 +420,19 @@ bool AppController::logDose(int regimenId, int medicationId,
             updated.status = status;
             const bool wasTaken = existing.status == QStringLiteral("taken");
             const bool nowTaken = status == QStringLiteral("taken");
+            // Taking it off stock needs the amount on the log, so consume first;
+            // giving it back happens only once the log no longer says taken.
+            if (nowTaken && !wasTaken)
+                updated.stockDelta = StockLedger::consume(m_store, medicationId, r);
+            else if (wasTaken && !nowTaken)
+                updated.stockDelta = 0.0;
             const bool ok = m_store.updateIntake(updated);
             if (ok) {
-                if (wasTaken != nowTaken)
-                    adjustStock(medicationId, wasTaken ? 1.0 : -1.0);
+                if (wasTaken && !nowTaken)
+                    StockLedger::restore(m_store, existing);
                 emit changed();
+            } else if (nowTaken && !wasTaken) {
+                StockLedger::restore(m_store, updated); // nothing was logged, give it back
             }
             return ok;
         }
@@ -420,15 +443,16 @@ bool AppController::logDose(int regimenId, int medicationId,
     intake.medicationId = medicationId;
     intake.scheduledAt = scheduled;
     intake.takenAt = QDateTime::currentDateTimeUtc();
-    intake.amount = med.strength;
+    intake.amount = med.strength * unitsPerDose(r);
     intake.unit = med.unit;
     intake.status = status;
+    intake.stockDelta = status == QStringLiteral("taken")
+                        ? StockLedger::consume(m_store, medicationId, r) : 0.0;
     const bool ok = m_store.addIntake(intake);
-    if (ok) {
-        if (status == QStringLiteral("taken"))
-            adjustStock(medicationId, -1.0);
+    if (ok)
         emit changed();
-    }
+    else
+        StockLedger::restore(m_store, intake); // nothing was logged, give it back
     return ok;
 }
 
@@ -439,29 +463,22 @@ bool AppController::clearIntake(int intakeId)
 
 bool AppController::removeIntake(int intakeId)
 {
+    Intake removed;
     const QList<Intake> all = m_store.intakes();
     for (const Intake &intake : all) {
         if (intake.id == intakeId) {
-            if (intake.status == QStringLiteral("taken"))
-                adjustStock(intake.medicationId, 1.0);
+            removed = intake;
             break;
         }
     }
 
     const bool ok = m_store.removeIntake(intakeId);
-    if (ok)
+    if (ok) {
+        if (removed.status == QStringLiteral("taken"))
+            StockLedger::restore(m_store, removed);
         emit changed();
+    }
     return ok;
-}
-
-void AppController::adjustStock(qint64 medicationId, double delta)
-{
-    bool hasStock = false;
-    Stock stock = m_store.stock(medicationId, &hasStock);
-    if (!hasStock)
-        return; // not tracking stock for this medication
-    stock.quantity = qMax(0.0, stock.quantity + delta);
-    m_store.setStock(stock);
 }
 
 bool AppController::saveStock(int medicationId, double quantity, const QString &unit,
@@ -470,7 +487,7 @@ bool AppController::saveStock(int medicationId, double quantity, const QString &
     Stock stock;
     stock.medicationId = medicationId;
     stock.quantity = quantity;
-    stock.unit = unit;
+    stock.unit = Vocab::normalizeStockUnit(unit);
     stock.lowThreshold = lowThreshold;
     stock.source = source;
     stock.expires = expires.isEmpty() ? QDate() : QDate::fromString(expires, Qt::ISODate);
@@ -527,6 +544,32 @@ QVariantList AppController::analyteCatalog() const
         map[QStringLiteral("label")] = analyte.label;
         map[QStringLiteral("unit")] = analyte.unit;
         map[QStringLiteral("reference")] = analyte.reference;
+        list.append(map);
+    }
+    return list;
+}
+
+QVariantList AppController::formOptions() const
+{
+    QVariantList list;
+    const QList<VocabEntry> entries = Vocab::forms();
+    for (const VocabEntry &entry : entries) {
+        QVariantMap map;
+        map[QStringLiteral("key")] = entry.key;
+        map[QStringLiteral("label")] = entry.label;
+        list.append(map);
+    }
+    return list;
+}
+
+QVariantList AppController::stockUnitOptions() const
+{
+    QVariantList list;
+    const QList<VocabEntry> entries = Vocab::stockUnits();
+    for (const VocabEntry &entry : entries) {
+        QVariantMap map;
+        map[QStringLiteral("key")] = entry.key;
+        map[QStringLiteral("label")] = entry.label;
         list.append(map);
     }
     return list;

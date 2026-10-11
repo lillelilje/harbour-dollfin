@@ -447,6 +447,64 @@ Template:
 
 ---
 
+### D-031 — Units per dose on the schedule, only for countable forms
+- **Date:** 2026-10-11 · **Status:** Accepted
+- **Context:** A schedule could not say "take 2 pills" — strength lives on the medication
+  (one pill), so a dose of several units was not recordable. The v1 `regimen.dose` column
+  existed but was never written by the UI (always 0).
+- **Decision:** Reuse **`regimen.dose` as the number of units per dose** (0 = unspecified,
+  treated as one). **No schema change, no migration.** The schedule page shows the field only
+  when the medication's form is **Pill, Patch or Spray** ("Pills/Patches/Sprays per dose");
+  decimals are allowed (half a pill). For other forms the count is saved as 0. The count shows
+  in the dose text (`Pill · 2 × 2 mg`) and a taken dose logs `amount = strength × count`.
+  It records what the user configures; there is no default other than one and no suggestion.
+- **Consequences:** Forms were stored as translated text; D-032 makes them stable keys so the
+  count field survives a language switch. Stock still decrements **one per taken dose** (D-023) — not changed here, since the
+  stock unit may be "doses" rather than units.
+- **Follow-up:** Changing a medication's form while it has schedules opens an "Update
+  schedules?" dialog (Now / Later). Now opens the schedule (or the list when there are
+  several); Later leaves them as they are. The stale count is never changed silently.
+
+---
+
+### D-032 — Forms and stock units are stored as stable keys
+- **Date:** 2026-10-11 · **Status:** Accepted
+- **Context:** `medication.form` and `stock.unit` held the translated text shown when the value
+  was picked (`Pil`, `tabletter`, ...). After a language switch the pages could not find the
+  stored value again: the method fell back to "Other", the units-per-dose field (D-031)
+  disappeared, and the stock page reset its unit. The stock page also looked up the
+  medication's unit instead of the stock unit.
+- **Decision:** Store **English keys** (`Pill`…`Other`, `doses`…`g`) and translate only for
+  display, through `Vocab` in core (`QT_TRANSLATE_NOOP`, context `Dollfin`, same pattern as
+  `Analytes`). QML gets `[{key, label}]` from `app.formOptions()` / `app.stockUnitOptions()`.
+  **Migration v3** rewrites existing nl/nb text to keys; **backup import** applies the same
+  rewrite, because older backups hold translated text. Only values change; no column changes.
+- **Consequences:** The legacy table is frozen at the 1.2 nl/nb translations; new languages
+  never need an entry. Unknown text (anything not in the table) is kept as is and shown as
+  is. Preset medication *names* are still stored as shown; they are almost all identical
+  across languages, so they are left alone. Lets a later stock rule tell "doses" from counted
+  units (D-031 follow-up).
+
+---
+
+### D-033 — Stock follows units per dose; the amount taken off is recorded
+- **Date:** 2026-10-11 · **Status:** Accepted
+- **Context:** D-023 took one off stock per taken dose. With units per dose (D-031) a schedule
+  of 2 pills drifted when stock is counted in tablets. Undo has to give back the same amount,
+  even if the schedule changed or was deleted in between.
+- **Decision:** A taken dose takes off **1 when the stock unit is `doses`**, otherwise the
+  schedule's **units per dose** (forms without a count stay at 1). Stock never goes below 0;
+  only what was actually there is taken off. **Migration v4** adds a nullable
+  `intake.stock_delta` holding what was taken off (0 for skipped or untracked stock). Undo
+  (taken → skipped, delete) gives back exactly `stock_delta`; rows from before v4 (and
+  older backups) have NULL and give back 1, as they took off 1. Logic lives in
+  `StockLedger` (core, unit-tested).
+- **Consequences:** Refines D-023. Untracked stock now records 0, so starting to track stock
+  later and then undoing an earlier dose no longer adds a phantom unit. Partial-dose
+  tracking for gels or injections (ml) is still out of scope.
+
+---
+
 ## Open questions
 
 Nothing is blocking. Deferred admin:

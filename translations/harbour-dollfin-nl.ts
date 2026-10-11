@@ -360,6 +360,66 @@
         <source>150-600</source>
         <translation>150-600</translation>
     </message>
+    <message>
+        <source>Pill</source>
+        <translation>Pil</translation>
+    </message>
+    <message>
+        <source>Gel</source>
+        <translation>Gel</translation>
+    </message>
+    <message>
+        <source>Patch</source>
+        <translation>Pleister</translation>
+    </message>
+    <message>
+        <source>Injection</source>
+        <translation>Injectie</translation>
+    </message>
+    <message>
+        <source>Spray</source>
+        <translation>Spray</translation>
+    </message>
+    <message>
+        <source>Implant</source>
+        <translation>Implantaat</translation>
+    </message>
+    <message>
+        <source>Other</source>
+        <translation>Anders</translation>
+    </message>
+    <message>
+        <source>doses</source>
+        <translation>doses</translation>
+    </message>
+    <message>
+        <source>tablets</source>
+        <translation>tabletten</translation>
+    </message>
+    <message>
+        <source>capsules</source>
+        <translation>capsules</translation>
+    </message>
+    <message>
+        <source>patches</source>
+        <translation>pleisters</translation>
+    </message>
+    <message>
+        <source>sachets</source>
+        <translation>sachets</translation>
+    </message>
+    <message>
+        <source>vials</source>
+        <translation>flesjes</translation>
+    </message>
+    <message>
+        <source>ml</source>
+        <translation>ml</translation>
+    </message>
+    <message>
+        <source>g</source>
+        <translation>g</translation>
+    </message>
 </context>
 <context>
     <name>HistoryPage</name>
@@ -593,34 +653,6 @@
         <translation>Medroxyprogesterone acetate</translation>
     </message>
     <message>
-        <source>Pill</source>
-        <translation>Pil</translation>
-    </message>
-    <message>
-        <source>Gel</source>
-        <translation>Gel</translation>
-    </message>
-    <message>
-        <source>Patch</source>
-        <translation>Pleister</translation>
-    </message>
-    <message>
-        <source>Injection</source>
-        <translation>Injectie</translation>
-    </message>
-    <message>
-        <source>Spray</source>
-        <translation>Spray</translation>
-    </message>
-    <message>
-        <source>Implant</source>
-        <translation>Implantaat</translation>
-    </message>
-    <message>
-        <source>Other</source>
-        <translation>Anders</translation>
-    </message>
-    <message>
         <source>A name is required</source>
         <translation>Een naam is vereist</translation>
     </message>
@@ -771,6 +803,18 @@
         <translation>zo</translation>
     </message>
     <message>
+        <source>Pills per dose</source>
+        <translation>Pillen per dosis</translation>
+    </message>
+    <message>
+        <source>Patches per dose</source>
+        <translation>Pleisters per dosis</translation>
+    </message>
+    <message>
+        <source>Sprays per dose</source>
+        <translation>Sprays per dosis</translation>
+    </message>
+    <message>
         <source>Times</source>
         <translation>Tijden</translation>
     </message>
@@ -840,6 +884,25 @@
     <message>
         <source>Dose</source>
         <translation>Dosis</translation>
+    </message>
+</context>
+<context>
+    <name>ScheduleUpdateDialog</name>
+    <message>
+        <source>Update schedules?</source>
+        <translation>Schema&apos;s bijwerken?</translation>
+    </message>
+    <message>
+        <source>Now</source>
+        <translation>Nu</translation>
+    </message>
+    <message>
+        <source>Later</source>
+        <translation>Later</translation>
+    </message>
+    <message>
+        <source>The form changed. Check this medication&apos;s schedules, for example the amount per dose.</source>
+        <translation>De vorm is gewijzigd. Controleer de schema&apos;s van deze medicatie, bijvoorbeeld de hoeveelheid per dosis.</translation>
     </message>
 </context>
 <context>
@@ -959,38 +1022,6 @@
 </context>
 <context>
     <name>StockPage</name>
-    <message>
-        <source>doses</source>
-        <translation>doses</translation>
-    </message>
-    <message>
-        <source>tablets</source>
-        <translation>tabletten</translation>
-    </message>
-    <message>
-        <source>capsules</source>
-        <translation>capsules</translation>
-    </message>
-    <message>
-        <source>patches</source>
-        <translation>pleisters</translation>
-    </message>
-    <message>
-        <source>sachets</source>
-        <translation>sachets</translation>
-    </message>
-    <message>
-        <source>vials</source>
-        <translation>flesjes</translation>
-    </message>
-    <message>
-        <source>ml</source>
-        <translation>ml</translation>
-    </message>
-    <message>
-        <source>g</source>
-        <translation>g</translation>
-    </message>
     <message>
         <source>Save</source>
         <translation>Opslaan</translation>

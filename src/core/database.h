@@ -13,7 +13,7 @@ namespace dollfin {
 class Database
 {
 public:
-    static const int SchemaVersion = 2;
+    static const int SchemaVersion = 4;
 
     Database();
     ~Database();
@@ -31,6 +31,7 @@ public:
 private:
     bool migrate(QString *error);
     bool run(const QString &sql, QString *error);
+    bool hasColumn(const QString &table, const QString &column) const;
 
     QString m_filePath;
     QString m_connectionName;

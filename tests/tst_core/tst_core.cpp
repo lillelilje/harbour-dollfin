@@ -10,13 +10,16 @@
 #include "core/database.h"
 #include "core/ical.h"
 #include "core/scheduleengine.h"
+#include "core/stockledger.h"
 #include "core/store.h"
+#include "core/vocab.h"
 
 #include <QCoreApplication>
 #include <QDate>
 #include <QDebug>
 #include <QDir>
 #include <QSet>
+#include <QSqlQuery>
 #include <QTemporaryDir>
 #include <QTime>
 
@@ -82,13 +85,13 @@ static void testSchemaAndMigration()
     if (!openOk)
         std::fprintf(stderr, "open failed: %s\n", error.toUtf8().constData());
     CHECK(openOk);
-    CHECK_EQ(db.schemaVersion(), 2);
+    CHECK_EQ(db.schemaVersion(), 4);
 
     // Re-opening an existing database must not re-run migrations.
     db.close();
     Database db2;
     CHECK(db2.open(dir.path() + "/schema.db", &error));
-    CHECK_EQ(db2.schemaVersion(), 2);
+    CHECK_EQ(db2.schemaVersion(), 4);
 }
 
 static void testMedicationCrud()
@@ -155,6 +158,15 @@ static void testRegimenCrudAndCascade()
     CHECK_EQ(fetched.times.size(), 2);
     CHECK_EQ(fetched.intervalDays, 5);
     CHECK_EQ(fetched.route, QStringLiteral("injection"));
+
+    // Units per dose (D-031): stored on the schedule, unspecified means one.
+    CHECK_EQ(fetched.dose, 5.0);
+    CHECK_EQ(unitsPerDose(fetched), 5.0);
+    Regimen halfPill = fetched;
+    halfPill.dose = 0.5;
+    CHECK(store.updateRegimen(halfPill));
+    CHECK_EQ(store.regimen(r.id, &ok).dose, 0.5);
+    CHECK_EQ(unitsPerDose(Regimen()), 1.0);
 
     // Weekly regimen with explicit weekdays.
     Regimen weekly;
@@ -567,6 +579,154 @@ static void testStockAndBackup()
     CHECK(!Backup::fromJson(restored, QStringLiteral("{}"), &error));
 }
 
+static void testVocabNormalize()
+{
+    // Keys and unknown text pass through unchanged.
+    CHECK_EQ(Vocab::normalizeForm(QStringLiteral("Pill")), QStringLiteral("Pill"));
+    CHECK_EQ(Vocab::normalizeForm(QStringLiteral("tablet")), QStringLiteral("tablet"));
+    CHECK_EQ(Vocab::normalizeStockUnit(QStringLiteral("doses")), QStringLiteral("doses"));
+
+    // Legacy nl / nb text maps to the key (D-032).
+    CHECK_EQ(Vocab::normalizeForm(QStringLiteral("Pil")), QStringLiteral("Pill"));
+    CHECK_EQ(Vocab::normalizeForm(QStringLiteral("Pille")), QStringLiteral("Pill"));
+    CHECK_EQ(Vocab::normalizeForm(QStringLiteral("Pleister")), QStringLiteral("Patch"));
+    CHECK_EQ(Vocab::normalizeForm(QStringLiteral("Plaster")), QStringLiteral("Patch"));
+    CHECK_EQ(Vocab::normalizeForm(QStringLiteral("Annet")), QStringLiteral("Other"));
+    CHECK_EQ(Vocab::normalizeStockUnit(QStringLiteral("tabletten")), QStringLiteral("tablets"));
+    CHECK_EQ(Vocab::normalizeStockUnit(QStringLiteral("plaster")), QStringLiteral("patches"));
+    CHECK_EQ(Vocab::normalizeStockUnit(QStringLiteral("hetteglass")), QStringLiteral("vials"));
+
+    // Every key is its own (untranslated) label and is unique.
+    QSet<QString> seen;
+    for (const VocabEntry &entry : Vocab::forms()) {
+        CHECK_EQ(entry.label, entry.key);
+        CHECK(!seen.contains(entry.key));
+        seen.insert(entry.key);
+    }
+    CHECK_EQ(Vocab::forms().size(), 7);
+    CHECK_EQ(Vocab::stockUnits().size(), 8);
+    CHECK_EQ(Vocab::formLabel(QStringLiteral("Something else")), QStringLiteral("Something else"));
+}
+
+static void testMigrationNormalizesLegacyText()
+{
+    QTemporaryDir dir;
+    const QString path = dir.path() + "/legacy.db";
+    {
+        // Simulate a v2 database written in Dutch.
+        Database db;
+        CHECK(db.open(path));
+        QSqlQuery q(db.handle());
+        CHECK(q.exec(QStringLiteral("UPDATE schema_version SET version = 2")));
+        CHECK(q.exec(QStringLiteral("INSERT INTO medication (id, name, form) VALUES (1, 'Estradiol', 'Pil')")));
+        CHECK(q.exec(QStringLiteral("INSERT INTO medication (id, name, form) VALUES (2, 'Own', 'tablet')")));
+        CHECK(q.exec(QStringLiteral("INSERT INTO stock (medication_id, quantity, unit) VALUES (1, 30, 'tabletten')")));
+    }
+
+    Database db;
+    CHECK(db.open(path));
+    CHECK_EQ(db.schemaVersion(), 4);
+    Store store(db);
+    CHECK_EQ(store.medication(1).form, QStringLiteral("Pill"));
+    CHECK_EQ(store.medication(2).form, QStringLiteral("tablet")); // unknown text kept
+    bool ok = false;
+    CHECK_EQ(store.stock(1, &ok).unit, QStringLiteral("tablets"));
+    CHECK(ok);
+
+    // A pre-D-032 backup (Norwegian) is normalized on import.
+    QSqlQuery q(db.handle());
+    CHECK(q.exec(QStringLiteral("UPDATE medication SET form = 'Plaster' WHERE id = 1")));
+    CHECK(q.exec(QStringLiteral("UPDATE stock SET unit = 'doser' WHERE medication_id = 1")));
+    const QString json = Backup::toJson(db);
+    Database restored;
+    CHECK(restored.open(dir.path() + "/restored.db"));
+    QString error;
+    CHECK(Backup::fromJson(restored, json, &error));
+    Store restoredStore(restored);
+    CHECK_EQ(restoredStore.medication(1).form, QStringLiteral("Patch"));
+    CHECK_EQ(restoredStore.stock(1, &ok).unit, QStringLiteral("doses"));
+}
+
+static void testStockLedger()
+{
+    QTemporaryDir dir;
+    Database db;
+    CHECK(db.open(dir.path() + "/ledger.db"));
+    Store store(db);
+
+    Medication m;
+    m.name = QStringLiteral("Estradiol");
+    m.form = QStringLiteral("Pill");
+    CHECK(store.addMedication(m));
+
+    Regimen two;
+    two.medicationId = m.id;
+    two.dose = 2.0;
+    Regimen unset;
+    unset.medicationId = m.id;
+
+    // Not tracking stock: nothing is taken off.
+    CHECK_EQ(StockLedger::consume(store, m.id, two), 0.0);
+
+    // Rule (D-033): "doses" takes one per dose, other units take units per dose.
+    Stock stock;
+    stock.medicationId = m.id;
+    stock.unit = QStringLiteral("doses");
+    CHECK_EQ(StockLedger::perDose(stock, two), 1.0);
+    stock.unit = QStringLiteral("tablets");
+    CHECK_EQ(StockLedger::perDose(stock, two), 2.0);
+    CHECK_EQ(StockLedger::perDose(stock, unset), 1.0);
+
+    stock.quantity = 5.0;
+    CHECK(store.setStock(stock));
+    CHECK_EQ(StockLedger::consume(store, m.id, two), 2.0);
+    CHECK_EQ(store.stock(m.id).quantity, 3.0);
+    CHECK_EQ(StockLedger::consume(store, m.id, two), 2.0);
+
+    // Running out takes off only what is left, and undo gives back exactly that.
+    const double last = StockLedger::consume(store, m.id, two);
+    CHECK_EQ(last, 1.0);
+    CHECK_EQ(store.stock(m.id).quantity, 0.0);
+    Intake taken;
+    taken.medicationId = m.id;
+    taken.stockDelta = last;
+    StockLedger::restore(store, taken);
+    CHECK_EQ(store.stock(m.id).quantity, 1.0);
+
+    // Intakes logged before D-033 give back one.
+    Intake legacy;
+    legacy.medicationId = m.id;
+    StockLedger::restore(store, legacy);
+    CHECK_EQ(store.stock(m.id).quantity, 2.0);
+
+    // A taken dose that took nothing off gives nothing back.
+    taken.stockDelta = 0.0;
+    StockLedger::restore(store, taken);
+    CHECK_EQ(store.stock(m.id).quantity, 2.0);
+
+    // stock_delta round-trips; NULL reads back as unknown.
+    Intake logged;
+    logged.medicationId = m.id;
+    logged.takenAt = utc("2026-03-01T08:00");
+    logged.status = QStringLiteral("taken");
+    logged.stockDelta = 0.5;
+    CHECK(store.addIntake(logged));
+    Intake old;
+    old.medicationId = m.id;
+    old.takenAt = utc("2026-02-01T08:00");
+    old.status = QStringLiteral("taken");
+    CHECK(store.addIntake(old));
+    const QList<Intake> intakes = store.intakes(m.id);
+    CHECK_EQ(intakes.size(), 2);
+    if (intakes.size() == 2) {
+        CHECK_EQ(intakes.at(0).stockDelta, 0.5);  // newest first
+        CHECK_EQ(intakes.at(1).stockDelta, -1.0);
+    }
+    logged.stockDelta = 0.0;
+    CHECK(store.updateIntake(logged));
+    CHECK_EQ(store.intakes(m.id).at(0).stockDelta, 0.0);
+}
+
 int main(int argc, char **argv)
 {
     QCoreApplication app(argc, argv);
@@ -589,6 +749,9 @@ int main(int argc, char **argv)
     testLevelCrud();
     testIcalBuilder();
     testStockAndBackup();
+    testVocabNormalize();
+    testMigrationNormalizesLegacyText();
+    testStockLedger();
 
     std::fprintf(stderr, "%d checks, %d failure(s)\n", g_checks, g_failures);
     return g_failures == 0 ? 0 : 1;
