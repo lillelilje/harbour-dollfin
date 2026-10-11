@@ -8,6 +8,7 @@ Page {
     id: page
 
     property int medicationId: -1
+    property string originalForm: ""
 
     // Index 0 is always "Custom": pick it to type any medication name (D-017).
     property var medicationNames: [
@@ -60,11 +61,31 @@ Page {
             "active": true
         }
         if (app.saveMedication(data)) {
-            pageStack.pop()
+            var schedules = medicationId >= 0 && data.form !== originalForm
+                            ? schedulesForMedication() : []
+            if (schedules.length > 0) {
+                // The units per dose may no longer fit the new form (D-031).
+                pageStack.replace(Qt.resolvedUrl("ScheduleUpdateDialog.qml"), {
+                    "medicationId": medicationId,
+                    "regimenId": schedules.length === 1 ? schedules[0].id : -1
+                })
+            } else {
+                pageStack.pop()
+            }
         } else {
             nameField.errorHighlight = true
             nameField.placeholderText = qsTr("A name is required")
         }
+    }
+
+    function schedulesForMedication() {
+        var all = app.regimens
+        var out = []
+        for (var i = 0; i < all.length; ++i) {
+            if (all[i].medicationId === medicationId)
+                out.push(all[i])
+        }
+        return out
     }
 
     Component.onCompleted: {
@@ -79,6 +100,7 @@ Page {
                 medCombo.currentIndex = 0
                 nameField.text = m.name
             }
+            originalForm = m.form
             var methodIndex = page.methods.indexOf(m.form)
             methodCombo.currentIndex = methodIndex >= 0 ? methodIndex : page.methods.length - 1
             strengthField.text = m.strength > 0 ? String(m.strength) : ""

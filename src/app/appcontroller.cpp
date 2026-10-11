@@ -81,20 +81,30 @@ QVariantMap regimenToMap(const Regimen &r, const Medication &medication)
     for (const QTime &time : r.times)
         times.append(time.toString(QStringLiteral("HH:mm")));
 
-    // Dose/strength/route live on the medication, not the schedule.
+    // Strength/route live on the medication; the schedule only adds how many
+    // units (pills, patches, ...) make up one dose (D-031).
     QString doseText;
     if (medication.strength > 0.0)
         doseText = QString::number(medication.strength) + QLatin1Char(' ') + medication.unit;
     else
         doseText = medication.unit;
-    if (!medication.form.isEmpty())
-        doseText = doseText.isEmpty() ? medication.form
-                                      : (medication.form + QStringLiteral(" · ") + doseText);
+    QString form = medication.form;
+    if (r.dose > 0.0 && r.dose != 1.0) {
+        const QString count = QString::number(r.dose) + QStringLiteral(" × ");
+        if (!doseText.trimmed().isEmpty())
+            doseText = count + doseText;
+        else
+            form = count + form;
+    }
+    if (!form.isEmpty())
+        doseText = doseText.trimmed().isEmpty() ? form
+                                                : (form + QStringLiteral(" · ") + doseText);
 
     QVariantMap map;
     map[QStringLiteral("id")] = r.id;
     map[QStringLiteral("medicationId")] = r.medicationId;
     map[QStringLiteral("medicationName")] = medication.name;
+    map[QStringLiteral("dose")] = r.dose;
     map[QStringLiteral("intervalDays")] = r.intervalDays;
     map[QStringLiteral("daysOfWeek")] = days;
     map[QStringLiteral("times")] = times;
@@ -420,7 +430,7 @@ bool AppController::logDose(int regimenId, int medicationId,
     intake.medicationId = medicationId;
     intake.scheduledAt = scheduled;
     intake.takenAt = QDateTime::currentDateTimeUtc();
-    intake.amount = med.strength;
+    intake.amount = med.strength * unitsPerDose(r);
     intake.unit = med.unit;
     intake.status = status;
     const bool ok = m_store.addIntake(intake);

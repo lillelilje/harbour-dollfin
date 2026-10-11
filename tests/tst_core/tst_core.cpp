@@ -156,6 +156,15 @@ static void testRegimenCrudAndCascade()
     CHECK_EQ(fetched.intervalDays, 5);
     CHECK_EQ(fetched.route, QStringLiteral("injection"));
 
+    // Units per dose (D-031): stored on the schedule, unspecified means one.
+    CHECK_EQ(fetched.dose, 5.0);
+    CHECK_EQ(unitsPerDose(fetched), 5.0);
+    Regimen halfPill = fetched;
+    halfPill.dose = 0.5;
+    CHECK(store.updateRegimen(halfPill));
+    CHECK_EQ(store.regimen(r.id, &ok).dose, 0.5);
+    CHECK_EQ(unitsPerDose(Regimen()), 1.0);
+
     // Weekly regimen with explicit weekdays.
     Regimen weekly;
     weekly.medicationId = m.id;

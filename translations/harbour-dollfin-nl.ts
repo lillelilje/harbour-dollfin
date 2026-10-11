@@ -771,6 +771,18 @@
         <translation>zo</translation>
     </message>
     <message>
+        <source>Pills per dose</source>
+        <translation>Pillen per dosis</translation>
+    </message>
+    <message>
+        <source>Patches per dose</source>
+        <translation>Pleisters per dosis</translation>
+    </message>
+    <message>
+        <source>Sprays per dose</source>
+        <translation>Sprays per dosis</translation>
+    </message>
+    <message>
         <source>Times</source>
         <translation>Tijden</translation>
     </message>
@@ -840,6 +852,25 @@
     <message>
         <source>Dose</source>
         <translation>Dosis</translation>
+    </message>
+</context>
+<context>
+    <name>ScheduleUpdateDialog</name>
+    <message>
+        <source>Update schedules?</source>
+        <translation>Schema&apos;s bijwerken?</translation>
+    </message>
+    <message>
+        <source>Now</source>
+        <translation>Nu</translation>
+    </message>
+    <message>
+        <source>Later</source>
+        <translation>Later</translation>
+    </message>
+    <message>
+        <source>The form changed. Check this medication&apos;s schedules, for example the amount per dose.</source>
+        <translation>De vorm is gewijzigd. Controleer de schema&apos;s van deze medicatie, bijvoorbeeld de hoeveelheid per dosis.</translation>
     </message>
 </context>
 <context>

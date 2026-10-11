@@ -447,6 +447,28 @@ Template:
 
 ---
 
+### D-031 — Units per dose on the schedule, only for countable forms
+- **Date:** 2026-10-11 · **Status:** Accepted
+- **Context:** A schedule could not say "take 2 pills" — strength lives on the medication
+  (one pill), so a dose of several units was not recordable. The v1 `regimen.dose` column
+  existed but was never written by the UI (always 0).
+- **Decision:** Reuse **`regimen.dose` as the number of units per dose** (0 = unspecified,
+  treated as one). **No schema change, no migration.** The schedule page shows the field only
+  when the medication's form is **Pill, Patch or Spray** ("Pills/Patches/Sprays per dose");
+  decimals are allowed (half a pill). For other forms the count is saved as 0. The count shows
+  in the dose text (`Pill · 2 × 2 mg`) and a taken dose logs `amount = strength × count`.
+  It records what the user configures; there is no default other than one and no suggestion.
+- **Consequences:** Forms are stored as the translated text they were picked in, so the page
+  matches the current translation and the English source; a medication saved in another UI
+  language falls back to "no count field" (same limitation as the medication page's method
+  combo). Stock still decrements **one per taken dose** (D-023) — not changed here, since the
+  stock unit may be "doses" rather than units.
+- **Follow-up:** Changing a medication's form while it has schedules opens an "Update
+  schedules?" dialog (Now / Later). Now opens the schedule (or the list when there are
+  several); Later leaves them as they are. The stale count is never changed silently.
+
+---
+
 ## Open questions
 
 Nothing is blocking. Deferred admin:
