@@ -11,12 +11,14 @@
 #include "core/ical.h"
 #include "core/scheduleengine.h"
 #include "core/store.h"
+#include "core/vocab.h"
 
 #include <QCoreApplication>
 #include <QDate>
 #include <QDebug>
 #include <QDir>
 #include <QSet>
+#include <QSqlQuery>
 #include <QTemporaryDir>
 #include <QTime>
 
@@ -82,13 +84,13 @@ static void testSchemaAndMigration()
     if (!openOk)
         std::fprintf(stderr, "open failed: %s\n", error.toUtf8().constData());
     CHECK(openOk);
-    CHECK_EQ(db.schemaVersion(), 2);
+    CHECK_EQ(db.schemaVersion(), 3);
 
     // Re-opening an existing database must not re-run migrations.
     db.close();
     Database db2;
     CHECK(db2.open(dir.path() + "/schema.db", &error));
-    CHECK_EQ(db2.schemaVersion(), 2);
+    CHECK_EQ(db2.schemaVersion(), 3);
 }
 
 static void testMedicationCrud()
@@ -155,6 +157,15 @@ static void testRegimenCrudAndCascade()
     CHECK_EQ(fetched.times.size(), 2);
     CHECK_EQ(fetched.intervalDays, 5);
     CHECK_EQ(fetched.route, QStringLiteral("injection"));
+
+    // Units per dose (D-031): stored on the schedule, unspecified means one.
+    CHECK_EQ(fetched.dose, 5.0);
+    CHECK_EQ(unitsPerDose(fetched), 5.0);
+    Regimen halfPill = fetched;
+    halfPill.dose = 0.5;
+    CHECK(store.updateRegimen(halfPill));
+    CHECK_EQ(store.regimen(r.id, &ok).dose, 0.5);
+    CHECK_EQ(unitsPerDose(Regimen()), 1.0);
 
     // Weekly regimen with explicit weekdays.
     Regimen weekly;
@@ -567,6 +578,74 @@ static void testStockAndBackup()
     CHECK(!Backup::fromJson(restored, QStringLiteral("{}"), &error));
 }
 
+static void testVocabNormalize()
+{
+    // Keys and unknown text pass through unchanged.
+    CHECK_EQ(Vocab::normalizeForm(QStringLiteral("Pill")), QStringLiteral("Pill"));
+    CHECK_EQ(Vocab::normalizeForm(QStringLiteral("tablet")), QStringLiteral("tablet"));
+    CHECK_EQ(Vocab::normalizeStockUnit(QStringLiteral("doses")), QStringLiteral("doses"));
+
+    // Legacy nl / nb text maps to the key (D-032).
+    CHECK_EQ(Vocab::normalizeForm(QStringLiteral("Pil")), QStringLiteral("Pill"));
+    CHECK_EQ(Vocab::normalizeForm(QStringLiteral("Pille")), QStringLiteral("Pill"));
+    CHECK_EQ(Vocab::normalizeForm(QStringLiteral("Pleister")), QStringLiteral("Patch"));
+    CHECK_EQ(Vocab::normalizeForm(QStringLiteral("Plaster")), QStringLiteral("Patch"));
+    CHECK_EQ(Vocab::normalizeForm(QStringLiteral("Annet")), QStringLiteral("Other"));
+    CHECK_EQ(Vocab::normalizeStockUnit(QStringLiteral("tabletten")), QStringLiteral("tablets"));
+    CHECK_EQ(Vocab::normalizeStockUnit(QStringLiteral("plaster")), QStringLiteral("patches"));
+    CHECK_EQ(Vocab::normalizeStockUnit(QStringLiteral("hetteglass")), QStringLiteral("vials"));
+
+    // Every key is its own (untranslated) label and is unique.
+    QSet<QString> seen;
+    for (const VocabEntry &entry : Vocab::forms()) {
+        CHECK_EQ(entry.label, entry.key);
+        CHECK(!seen.contains(entry.key));
+        seen.insert(entry.key);
+    }
+    CHECK_EQ(Vocab::forms().size(), 7);
+    CHECK_EQ(Vocab::stockUnits().size(), 8);
+    CHECK_EQ(Vocab::formLabel(QStringLiteral("Something else")), QStringLiteral("Something else"));
+}
+
+static void testMigrationNormalizesLegacyText()
+{
+    QTemporaryDir dir;
+    const QString path = dir.path() + "/legacy.db";
+    {
+        // Simulate a v2 database written in Dutch.
+        Database db;
+        CHECK(db.open(path));
+        QSqlQuery q(db.handle());
+        CHECK(q.exec(QStringLiteral("UPDATE schema_version SET version = 2")));
+        CHECK(q.exec(QStringLiteral("INSERT INTO medication (id, name, form) VALUES (1, 'Estradiol', 'Pil')")));
+        CHECK(q.exec(QStringLiteral("INSERT INTO medication (id, name, form) VALUES (2, 'Own', 'tablet')")));
+        CHECK(q.exec(QStringLiteral("INSERT INTO stock (medication_id, quantity, unit) VALUES (1, 30, 'tabletten')")));
+    }
+
+    Database db;
+    CHECK(db.open(path));
+    CHECK_EQ(db.schemaVersion(), 3);
+    Store store(db);
+    CHECK_EQ(store.medication(1).form, QStringLiteral("Pill"));
+    CHECK_EQ(store.medication(2).form, QStringLiteral("tablet")); // unknown text kept
+    bool ok = false;
+    CHECK_EQ(store.stock(1, &ok).unit, QStringLiteral("tablets"));
+    CHECK(ok);
+
+    // A pre-D-032 backup (Norwegian) is normalized on import.
+    QSqlQuery q(db.handle());
+    CHECK(q.exec(QStringLiteral("UPDATE medication SET form = 'Plaster' WHERE id = 1")));
+    CHECK(q.exec(QStringLiteral("UPDATE stock SET unit = 'doser' WHERE medication_id = 1")));
+    const QString json = Backup::toJson(db);
+    Database restored;
+    CHECK(restored.open(dir.path() + "/restored.db"));
+    QString error;
+    CHECK(Backup::fromJson(restored, json, &error));
+    Store restoredStore(restored);
+    CHECK_EQ(restoredStore.medication(1).form, QStringLiteral("Patch"));
+    CHECK_EQ(restoredStore.stock(1, &ok).unit, QStringLiteral("doses"));
+}
+
 int main(int argc, char **argv)
 {
     QCoreApplication app(argc, argv);
@@ -589,6 +668,8 @@ int main(int argc, char **argv)
     testLevelCrud();
     testIcalBuilder();
     testStockAndBackup();
+    testVocabNormalize();
+    testMigrationNormalizesLegacyText();
 
     std::fprintf(stderr, "%d checks, %d failure(s)\n", g_checks, g_failures);
     return g_failures == 0 ? 0 : 1;

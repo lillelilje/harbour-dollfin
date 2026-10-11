@@ -4,6 +4,7 @@
 #include "backup.h"
 
 #include "database.h"
+#include "vocab.h"
 
 #include <QDateTime>
 #include <QJsonArray>
@@ -134,6 +135,12 @@ bool Backup::fromJson(Database &database, const QString &json, QString *error)
                 return false;
             }
         }
+    }
+
+    // Backups from before D-032 hold translated forms/stock units.
+    if (!Vocab::normalizeStored(db, error)) {
+        db.rollback();
+        return false;
     }
 
     if (!db.commit()) {

@@ -8,6 +8,7 @@ Page {
     id: page
 
     property int medicationId: -1
+    property string originalForm: ""
 
     // Index 0 is always "Custom": pick it to type any medication name (D-017).
     property var medicationNames: [
@@ -37,10 +38,8 @@ Page {
         qsTr("Medroxyprogesterone acetate")
     ]
 
-    property var methods: [
-        qsTr("Pill"), qsTr("Gel"), qsTr("Patch"), qsTr("Injection"),
-        qsTr("Spray"), qsTr("Implant"), qsTr("Other")
-    ]
+    // [{key, label}]; the key is what gets stored (D-032). Last entry is "Other".
+    property var methods: app.formOptions()
 
     // Micro sign (U+00B5) as used on packaging.
     property var units: ["mg", "µg", "g", "ml", "IU", "%"]
@@ -53,18 +52,38 @@ Page {
         var data = {
             "id": medicationId,
             "name": name,
-            "form": page.methods[methodCombo.currentIndex],
+            "form": page.methods[methodCombo.currentIndex].key,
             "strength": parseFloat(strengthField.text) || 0,
             "unit": page.units[unitCombo.currentIndex],
             "notes": notesField.text,
             "active": true
         }
         if (app.saveMedication(data)) {
-            pageStack.pop()
+            var schedules = medicationId >= 0 && data.form !== originalForm
+                            ? schedulesForMedication() : []
+            if (schedules.length > 0) {
+                // The units per dose may no longer fit the new form (D-031).
+                pageStack.replace(Qt.resolvedUrl("ScheduleUpdateDialog.qml"), {
+                    "medicationId": medicationId,
+                    "regimenId": schedules.length === 1 ? schedules[0].id : -1
+                })
+            } else {
+                pageStack.pop()
+            }
         } else {
             nameField.errorHighlight = true
             nameField.placeholderText = qsTr("A name is required")
         }
+    }
+
+    function schedulesForMedication() {
+        var all = app.regimens
+        var out = []
+        for (var i = 0; i < all.length; ++i) {
+            if (all[i].medicationId === medicationId)
+                out.push(all[i])
+        }
+        return out
     }
 
     Component.onCompleted: {
@@ -79,7 +98,12 @@ Page {
                 medCombo.currentIndex = 0
                 nameField.text = m.name
             }
-            var methodIndex = page.methods.indexOf(m.form)
+            originalForm = m.form
+            var methodIndex = -1
+            for (var i = 0; i < page.methods.length; ++i) {
+                if (page.methods[i].key === m.form)
+                    methodIndex = i
+            }
             methodCombo.currentIndex = methodIndex >= 0 ? methodIndex : page.methods.length - 1
             strengthField.text = m.strength > 0 ? String(m.strength) : ""
             var unitIndex = page.units.indexOf(m.unit)
@@ -136,7 +160,7 @@ Page {
                 menu: ContextMenu {
                     Repeater {
                         model: page.methods
-                        MenuItem { text: modelData }
+                        MenuItem { text: modelData.label }
                     }
                 }
             }

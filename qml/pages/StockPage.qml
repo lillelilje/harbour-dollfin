@@ -11,17 +11,15 @@ Page {
     property string medicationName: ""
     property var expiryDate: new Date()
 
-    property var units: [
-        qsTr("doses"), qsTr("tablets"), qsTr("capsules"), qsTr("patches"),
-        qsTr("sachets"), qsTr("vials"), qsTr("ml"), qsTr("g")
-    ]
+    // [{key, label}]; the key is what gets stored (D-032).
+    property var units: app.stockUnitOptions()
 
     allowedOrientations: Orientation.All
 
     function save() {
         app.saveStock(medicationId,
                       parseFloat(quantityField.text) || 0,
-                      page.units[unitCombo.currentIndex],
+                      page.units[unitCombo.currentIndex].key,
                       parseFloat(lowField.text) || 0,
                       sourceField.text,
                       hasExpiry.checked ? Qt.formatDate(expiryDate, "yyyy-MM-dd") : "")
@@ -34,8 +32,12 @@ Page {
         quantityField.text = m.hasStock && m.quantity > 0 ? String(m.quantity) : ""
         lowField.text = m.lowThreshold > 0 ? String(m.lowThreshold) : ""
         sourceField.text = m.source
-        var unitIndex = page.units.indexOf(m.unit)
-        unitCombo.currentIndex = unitIndex >= 0 ? unitIndex : 0
+        var unitIndex = 0
+        for (var i = 0; i < page.units.length; ++i) {
+            if (page.units[i].key === m.stockUnit)
+                unitIndex = i
+        }
+        unitCombo.currentIndex = unitIndex
         if (m.expires) {
             hasExpiry.checked = true
             expiryDate = new Date(m.expires + "T00:00:00")
@@ -86,7 +88,7 @@ Page {
                     menu: ContextMenu {
                         Repeater {
                             model: page.units
-                            MenuItem { text: modelData }
+                            MenuItem { text: modelData.label }
                         }
                     }
                 }

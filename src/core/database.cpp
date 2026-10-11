@@ -3,6 +3,8 @@
 
 #include "database.h"
 
+#include "vocab.h"
+
 #include <QDateTime>
 #include <QSqlError>
 #include <QSqlQuery>
@@ -165,6 +167,14 @@ bool Database::migrate(QString *error)
     if (current < 2) {
         // Stock source: where the supply came from (prescriber, pharmacy, ...).
         if (!run(QStringLiteral("ALTER TABLE stock ADD COLUMN source TEXT"), error)) {
+            m_db.rollback();
+            return false;
+        }
+    }
+
+    if (current < 3) {
+        // Forms and stock units become stable keys instead of translated text (D-032).
+        if (!Vocab::normalizeStored(m_db, error)) {
             m_db.rollback();
             return false;
         }

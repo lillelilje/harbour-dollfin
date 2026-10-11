@@ -74,6 +74,10 @@ public:
     Q_INVOKABLE QVariantList analyteCatalog() const;
     Q_INVOKABLE QVariantList labUnits() const;
 
+    // Medication forms and stock units: [{key, label}], key is stored (D-032).
+    Q_INVOKABLE QVariantList formOptions() const;
+    Q_INVOKABLE QVariantList stockUnitOptions() const;
+
     // Stock (P5).
     Q_INVOKABLE bool saveStock(int medicationId, double quantity, const QString &unit,
                                double lowThreshold, const QString &source, const QString &expires);

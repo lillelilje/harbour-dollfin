@@ -41,6 +41,7 @@ DISTFILES += \
     qml/pages/StockPage.qml \
     qml/pages/RegimensPage.qml \
     qml/pages/RegimenEditPage.qml \
+    qml/pages/ScheduleUpdateDialog.qml \
     qml/pages/HistoryPage.qml \
     qml/pages/LabsPage.qml \
     qml/pages/AnalyteResultsPage.qml \

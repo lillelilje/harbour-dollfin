@@ -13,7 +13,7 @@ namespace dollfin {
 class Database
 {
 public:
-    static const int SchemaVersion = 2;
+    static const int SchemaVersion = 3;
 
     Database();
     ~Database();

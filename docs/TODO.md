@@ -168,6 +168,20 @@ One analyte, one unit at a time (D-026/D-028). No chart dependency: QML `Canvas`
 - [x] Graph entry in the analyte page’s pull-down
 - [ ] Device test: graph with 1 and with several points, band vs no band, unit switch
 
+## Units per dose (D-031)
+
+- [x] Schedule page: "Pills/Patches/Sprays per dose" field, only for countable forms
+- [x] Count stored in `regimen.dose`, shown in the dose text, multiplies the logged amount
+- [x] Unit test: dose round-trip, `unitsPerDose` default
+- [x] Form change on a medication with schedules asks to update them (Now / Later)
+- [ ] Device test: pill schedule with 2 and 0.5, gel schedule shows no field,
+      Pill -> Gel shows the dialog; Now opens the schedule, Later returns to the list
+- [x] Forms and stock units stored as keys, migration v3 + backup import (D-032)
+- [ ] Device test: data saved in nl/nb shows the right method, count field and stock unit
+      after switching the UI language
+- [ ] Decide whether stock decrements by units per dose when the stock unit is a unit
+      (tablets/patches) rather than doses (D-023)
+
 ## Backlog (post-v1)
 
 - [ ] Hormone graphs for **all** tracked analytes (next v1.x, D-026)

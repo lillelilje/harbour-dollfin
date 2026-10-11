@@ -24,7 +24,7 @@ struct Medication {
 struct Regimen {
     qint64 id = -1;
     qint64 medicationId = -1;
-    double dose = 0.0;
+    double dose = 0.0;     // units per dose (pills, patches, sprays); 0 = unspecified (D-031)
     QString unit;
     QString route;
     int intervalDays = 1;  // used when daysOfWeek is empty
@@ -34,6 +34,12 @@ struct Regimen {
     QDate endDate;         // invalid => open-ended
     bool active = true;
 };
+
+// Countable units taken per dose; an unspecified count means one (D-031).
+inline double unitsPerDose(const Regimen &regimen)
+{
+    return regimen.dose > 0.0 ? regimen.dose : 1.0;
+}
 
 struct Intake {
     qint64 id = -1;

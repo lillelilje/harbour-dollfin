@@ -10,6 +10,7 @@ Page {
     property int medicationId: -1
     property int regimenId: -1
     property string medicationName: ""
+    property string medicationForm: ""
 
     property var times: []
     property var weekdays: []
@@ -17,6 +18,22 @@ Page {
     property bool hasEndDate: false
     property var endDate: new Date()
     property int repeatMode: 0 // 0 daily, 1 every N days, 2 weekly
+
+    // Forms (stored keys, D-032) that come in countable units, with the label
+    // for "how many per dose" (D-031).
+    readonly property var countLabels: [
+        { "form": "Pill", "label": qsTr("Pills per dose") },
+        { "form": "Patch", "label": qsTr("Patches per dose") },
+        { "form": "Spray", "label": qsTr("Sprays per dose") }
+    ]
+    readonly property string countLabel: {
+        for (var i = 0; i < countLabels.length; i++) {
+            if (medicationForm === countLabels[i].form)
+                return countLabels[i].label
+        }
+        return ""
+    }
+    readonly property bool countable: countLabel.length > 0
 
     allowedOrientations: Orientation.All
 
@@ -30,6 +47,8 @@ Page {
         var data = {
             "id": regimenId,
             "medicationId": medicationId,
+            // Only countable forms carry a count; anything else stays unspecified.
+            "dose": countable ? Math.max(0, parseFloat(countField.text.replace(",", ".")) || 0) : 0,
             "intervalDays": repeatMode === 1 ? Math.max(1, parseInt(intervalField.text) || 1) : 1,
             "daysOfWeek": repeatMode === 2 ? weekdays : [],
             "times": times,
@@ -53,10 +72,14 @@ Page {
     }
 
     Component.onCompleted: {
-        medicationName = app.medication(medicationId).name
+        var m = app.medication(medicationId)
+        medicationName = m.name
+        medicationForm = m.form
         if (regimenId >= 0) {
             var r = app.regimen(regimenId)
             times = r.times
+            if (r.dose > 0)
+                countField.text = String(r.dose)
             weekdays = r.daysOfWeek
             if (r.daysOfWeek.length > 0) {
                 repeatMode = 2
@@ -138,6 +161,17 @@ Page {
                         onClicked: page.toggleWeekday(index + 1)
                     }
                 }
+            }
+
+            TextField {
+                id: countField
+                visible: page.countable
+                x: Theme.horizontalPageMargin
+                width: parent.width - 2 * Theme.horizontalPageMargin
+                label: page.countLabel
+                placeholderText: page.countLabel
+                inputMethodHints: Qt.ImhFormattedNumbersOnly
+                text: "1"
             }
 
             SectionHeader { text: qsTr("Times") }
